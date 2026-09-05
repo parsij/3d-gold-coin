@@ -174,17 +174,18 @@ function CoinBody({ curveSegments, bevelSegments }) {
 
 function EmbossedLogo({ maskTexture, segments }) {
   return (
-    <mesh position={[0, -0.01, 0.025]} renderOrder={4}>
-      <planeGeometry args={[1.72, 1.93, segments, segments]} />
+    <mesh position={[0, -0.01, 0.019]} renderOrder={4}>
+      <planeGeometry args={[1.79, 2.01, segments, segments]} />
       <meshPhysicalMaterial
-        {...goldMaterial}
-        color="#f2c861"
-        roughness={0.125}
-        clearcoat={0.12}
-        envMapIntensity={3.45}
+        color="#78c744"
+        metalness={0.28}
+        roughness={0.22}
+        clearcoat={0.24}
+        clearcoatRoughness={0.16}
+        envMapIntensity={2.55}
         displacementMap={maskTexture}
-        displacementScale={0.115}
-        displacementBias={0.006}
+        displacementScale={0.04}
+        displacementBias={0.001}
         alphaMap={maskTexture}
         alphaTest={0.07}
         transparent

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -5,10 +6,26 @@ import { chromium } from 'playwright'
 
 const WIDTH = Number(process.env.COIN_RENDER_WIDTH || 1440)
 const HEIGHT = Number(process.env.COIN_RENDER_HEIGHT || 1440)
-const CAPTURE_FPS = Number(process.env.COIN_CAPTURE_FPS || 30)
+const CAPTURE_FPS = Number(process.env.COIN_CAPTURE_FPS || 60)
 const DURATION_SECONDS = Number(process.env.COIN_DURATION_SECONDS || 8.73)
 const BASE_URL = process.env.COIN_RENDER_URL || 'http://127.0.0.1:4173/?capture=1'
 const OUTPUT_FILE = path.resolve(process.env.COIN_VIDEO_FILE || 'media/coin-master.webm')
+
+const BROWSER_CANDIDATES = [
+  process.env.CHROME_PATH,
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/google-chrome',
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+].filter(Boolean)
+
+const executablePath = BROWSER_CANDIDATES.find((candidate) => existsSync(candidate))
+
+if (!executablePath) {
+  throw new Error(
+    'No installed Chrome/Chromium found. Set CHROME_PATH to your browser executable.',
+  )
+}
 
 if (!Number.isFinite(WIDTH) || WIDTH < 1 || !Number.isFinite(HEIGHT) || HEIGHT < 1) {
   throw new Error('COIN_RENDER_WIDTH and COIN_RENDER_HEIGHT must be positive numbers')
@@ -25,13 +42,16 @@ if (!Number.isFinite(DURATION_SECONDS) || DURATION_SECONDS <= 0) {
 await rm(OUTPUT_FILE, { force: true })
 await mkdir(path.dirname(OUTPUT_FILE), { recursive: true })
 
+console.log(`[3d-gold-coin] Browser: ${executablePath}`)
+
 const browser = await chromium.launch({
-  headless: true,
+  executablePath,
+  headless: false,
   args: [
     '--enable-webgl',
     '--ignore-gpu-blocklist',
-    '--use-gl=angle',
-    '--use-angle=swiftshader',
+    '--enable-gpu-rasterization',
+    '--enable-zero-copy',
   ],
 })
 
@@ -59,6 +79,33 @@ try {
     null,
     { timeout: 120_000 },
   )
+
+  const gpuInfo = await page.evaluate(() => {
+    const canvas = document.querySelector('canvas')
+    if (!canvas) return { renderer: 'unknown', vendor: 'unknown' }
+
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl')
+    if (!gl) return { renderer: 'WebGL unavailable', vendor: 'unknown' }
+
+    const debug = gl.getExtension('WEBGL_debug_renderer_info')
+    return {
+      renderer: debug
+        ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)
+        : gl.getParameter(gl.RENDERER),
+      vendor: debug
+        ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL)
+        : gl.getParameter(gl.VENDOR),
+    }
+  })
+
+  console.log(`[3d-gold-coin] WebGL vendor: ${gpuInfo.vendor}`)
+  console.log(`[3d-gold-coin] WebGL renderer: ${gpuInfo.renderer}`)
+
+  if (/swiftshader|llvmpipe|software/i.test(gpuInfo.renderer)) {
+    console.warn(
+      '[3d-gold-coin] WARNING: Chrome is using software rendering instead of the GPU.',
+    )
+  }
 
   await page.evaluate(() => {
     window.coinQuality?.ultra?.()

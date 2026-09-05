@@ -86,10 +86,16 @@ jobs:
           mkdir -p media
 
           cp render-frames/frame-000000.png media/coin-poster.png
+
           ffmpeg -y -i media/coin-poster.png \
             -vf 'scale=1080:1080:flags=lanczos' \
             -c:v libwebp -quality 86 -compression_level 6 \
             media/coin-poster.webp
+
+          ffmpeg -y -i media/coin-poster.png \
+            -vf 'scale=1080:1080:flags=lanczos' \
+            -q:v 2 \
+            media/coin-poster.jpg
 
           segment=$(python3 - <<'PY'
           print(8.73 / 5)
@@ -173,6 +179,7 @@ jobs:
           ultra_bytes=$(stat -c%s media/coin-ultra.mp4)
           poster_webp_bytes=$(stat -c%s media/coin-poster.webp)
           poster_png_bytes=$(stat -c%s media/coin-poster.png)
+          poster_jpg_bytes=$(stat -c%s media/coin-poster.jpg)
 
           cat > media/coin-media.json <<EOF
           {
@@ -185,8 +192,10 @@ jobs:
             "poster": {
               "webp": "${RELEASE_BASE}/coin-poster.webp",
               "png": "${RELEASE_BASE}/coin-poster.png",
+              "jpg": "${RELEASE_BASE}/coin-poster.jpg",
               "webpBytes": ${poster_webp_bytes},
               "pngBytes": ${poster_png_bytes},
+              "jpgBytes": ${poster_jpg_bytes},
               "matchesVideoFrame": 0
             },
             "qualities": {
@@ -232,6 +241,7 @@ jobs:
           assets=(
             media/coin-poster.png
             media/coin-poster.webp
+            media/coin-poster.jpg
             media/coin-low.mp4
             media/coin-medium.mp4
             media/coin-high.mp4

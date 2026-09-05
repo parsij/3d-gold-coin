@@ -14,8 +14,6 @@ const QUALITY_PRESETS = [
     torusSegments: 64,
     torusRadialSegments: 12,
     reeds: 64,
-    logoSegments: 56,
-    logoTextureSize: 384,
   },
   {
     curveSegments: 112,
@@ -23,8 +21,6 @@ const QUALITY_PRESETS = [
     torusSegments: 112,
     torusRadialSegments: 18,
     reeds: 96,
-    logoSegments: 88,
-    logoTextureSize: 640,
   },
   {
     curveSegments: 192,
@@ -32,8 +28,13 @@ const QUALITY_PRESETS = [
     torusSegments: 192,
     torusRadialSegments: 24,
     reeds: 132,
-    logoSegments: 136,
-    logoTextureSize: 1024,
+  },
+  {
+    curveSegments: 320,
+    bevelSegments: 12,
+    torusSegments: 320,
+    torusRadialSegments: 32,
+    reeds: 180,
   },
 ]
 
@@ -48,98 +49,24 @@ const goldMaterial = {
   anisotropyRotation: Math.PI / 2,
 }
 
-function createLogoMaskTexture(sourceTexture, renderer, maxSize) {
-  const image = sourceTexture.image
-  const sourceWidth = image.naturalWidth || image.width || 549
-  const sourceHeight = image.naturalHeight || image.height || 616
-  const scale = Math.min(1, maxSize / Math.max(sourceWidth, sourceHeight))
-  const width = Math.max(2, Math.round(sourceWidth * scale))
-  const height = Math.max(2, Math.round(sourceHeight * scale))
-
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-
-  const context = canvas.getContext('2d', { willReadFrequently: true })
-  context.clearRect(0, 0, width, height)
-  context.drawImage(image, 0, 0, width, height)
-
-  const pixels = context.getImageData(0, 0, width, height)
-  const data = pixels.data
-
-  const cornerIndexes = [
-    0,
-    (width - 1) * 4,
-    ((height - 1) * width) * 4,
-    ((height * width) - 1) * 4,
-  ]
-
-  const background = cornerIndexes.reduce(
-    (accumulator, index) => {
-      accumulator.r += data[index]
-      accumulator.g += data[index + 1]
-      accumulator.b += data[index + 2]
-      accumulator.a += data[index + 3]
-      return accumulator
-    },
-    { r: 0, g: 0, b: 0, a: 0 },
-  )
-
-  background.r /= cornerIndexes.length
-  background.g /= cornerIndexes.length
-  background.b /= cornerIndexes.length
-  background.a /= cornerIndexes.length
-
-  const transparentBackground = background.a < 245
-
-  for (let index = 0; index < data.length; index += 4) {
-    const alpha = data[index + 3] / 255
-    const redDistance = data[index] - background.r
-    const greenDistance = data[index + 1] - background.g
-    const blueDistance = data[index + 2] - background.b
-    const colorDistance = Math.min(
-      1,
-      Math.sqrt(
-        redDistance * redDistance +
-          greenDistance * greenDistance +
-          blueDistance * blueDistance,
-      ) / 170,
-    )
-
-    const mask = transparentBackground
-      ? alpha
-      : Math.max(0, Math.min(1, colorDistance * alpha))
-    const value = Math.round(mask * 255)
-
-    data[index] = value
-    data[index + 1] = value
-    data[index + 2] = value
-    data[index + 3] = 255
-  }
-
-  context.putImageData(pixels, 0, 0)
-
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.colorSpace = THREE.NoColorSpace
-  texture.minFilter = THREE.LinearMipmapLinearFilter
-  texture.magFilter = THREE.LinearFilter
-  texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy())
-  texture.needsUpdate = true
-  return texture
-}
-
-function useLogoReliefTexture(textureSize) {
+function useLogoTexture() {
   const { gl } = useThree()
   const sourceTexture = useLoader(THREE.TextureLoader, LOGO_URL)
 
-  const maskTexture = useMemo(
-    () => createLogoMaskTexture(sourceTexture, gl, textureSize),
-    [gl, sourceTexture, textureSize],
-  )
+  const texture = useMemo(() => {
+    const clone = sourceTexture.clone()
+    clone.colorSpace = THREE.SRGBColorSpace
+    clone.minFilter = THREE.LinearMipmapLinearFilter
+    clone.magFilter = THREE.LinearFilter
+    clone.generateMipmaps = true
+    clone.anisotropy = Math.min(16, gl.capabilities.getMaxAnisotropy())
+    clone.needsUpdate = true
+    return clone
+  }, [gl, sourceTexture])
 
-  useEffect(() => () => maskTexture.dispose(), [maskTexture])
+  useEffect(() => () => texture.dispose(), [texture])
 
-  return maskTexture
+  return texture
 }
 
 function CoinBody({ curveSegments, bevelSegments }) {
@@ -172,28 +99,17 @@ function CoinBody({ curveSegments, bevelSegments }) {
   )
 }
 
-function EmbossedLogo({ maskTexture, segments }) {
+function FlatLogo({ texture }) {
   return (
-    <mesh position={[0, -0.01, 0.019]} renderOrder={4}>
-      <planeGeometry args={[1.79, 2.01, segments, segments]} />
-      <meshPhysicalMaterial
-        color="#78c744"
-        metalness={0.28}
-        roughness={0.22}
-        clearcoat={0.24}
-        clearcoatRoughness={0.16}
-        envMapIntensity={2.55}
-        displacementMap={maskTexture}
-        displacementScale={0.04}
-        displacementBias={0.001}
-        alphaMap={maskTexture}
-        alphaTest={0.07}
+    <mesh position={[0, -0.015, 0.012]} renderOrder={4}>
+      <planeGeometry args={[1.98, 2.22]} />
+      <meshBasicMaterial
+        map={texture}
         transparent
+        alphaTest={0.01}
+        depthWrite={false}
+        toneMapped={false}
         side={THREE.DoubleSide}
-        depthWrite
-        polygonOffset
-        polygonOffsetFactor={-1}
-        polygonOffsetUnits={-1}
       />
     </mesh>
   )
@@ -247,7 +163,7 @@ function CoinFace({ z, flip = false, config, logoTexture }) {
         />
       </mesh>
 
-      <EmbossedLogo maskTexture={logoTexture} segments={config.logoSegments} />
+      <FlatLogo texture={logoTexture} />
     </group>
   )
 }
@@ -288,7 +204,7 @@ function ReededEdge({ reeds }) {
 export default function GoldCoin({ qualityTier = 2 }) {
   const coin = useRef(null)
   const config = QUALITY_PRESETS[qualityTier] ?? QUALITY_PRESETS[1]
-  const logoTexture = useLogoReliefTexture(config.logoTextureSize)
+  const logoTexture = useLogoTexture()
 
   useFrame(({ clock }, delta) => {
     if (!coin.current) return

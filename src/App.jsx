@@ -228,6 +228,7 @@ export default function App() {
           antialias: true,
           alpha: false,
           powerPreference: 'high-performance',
+          preserveDrawingBuffer: captureMode,
         }}
         onCreated={({ gl }) => {
           gl.setClearColor(captureMode ? '#191919' : '#000000', 1)

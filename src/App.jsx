@@ -1,11 +1,30 @@
-import { Environment, Lightformer } from '@react-three/drei'
+import { Environment, Lightformer, PerformanceMonitor } from '@react-three/drei'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { Suspense, useRef } from 'react'
+import { Suspense, useCallback, useRef, useState } from 'react'
 import * as THREE from 'three'
 
 import GoldCoin from './components/GoldCoin.jsx'
 
-function MovingLights() {
+const QUALITY_PRESETS = [
+  { dpr: 1, environmentResolution: 128 },
+  { dpr: 1.5, environmentResolution: 256 },
+  { dpr: 2.25, environmentResolution: 512 },
+]
+
+function getInitialQualityTier() {
+  const cores = navigator.hardwareConcurrency ?? 8
+  const memory = navigator.deviceMemory ?? 8
+
+  if (cores <= 4 || memory <= 4) return 0
+  if (cores <= 6 || memory <= 6) return 1
+  return 2
+}
+
+function performanceBounds(refreshRate) {
+  return [Math.min(45, refreshRate * 0.68), Math.min(58, refreshRate * 0.9)]
+}
+
+function MovingLights({ qualityTier }) {
   const warm = useRef(null)
   const white = useRef(null)
 
@@ -32,17 +51,19 @@ function MovingLights() {
   return (
     <>
       <pointLight ref={warm} color="#ffd16a" intensity={58} distance={12} decay={2} />
-      <pointLight ref={white} color="#ffffff" intensity={42} distance={11} decay={2} />
+      {qualityTier > 0 && (
+        <pointLight ref={white} color="#ffffff" intensity={42} distance={11} decay={2} />
+      )}
     </>
   )
 }
 
-function StudioEnvironment() {
+function StudioEnvironment({ resolution }) {
   return (
-    <Environment resolution={512}>
+    <Environment key={resolution} resolution={resolution} frames={1}>
       <Lightformer
         form="rect"
-        intensity={7}
+        intensity={7.5}
         color="#fff2c9"
         position={[-4, 2.5, 4]}
         rotation={[0, -0.55, 0]}
@@ -50,7 +71,7 @@ function StudioEnvironment() {
       />
       <Lightformer
         form="rect"
-        intensity={5}
+        intensity={5.5}
         color="#ffffff"
         position={[4.5, 0.5, 3]}
         rotation={[0, 0.7, 0]}
@@ -58,7 +79,7 @@ function StudioEnvironment() {
       />
       <Lightformer
         form="rect"
-        intensity={4}
+        intensity={4.5}
         color="#ffba3c"
         position={[0, -4, 2]}
         rotation={[Math.PI / 2, 0, 0]}
@@ -66,7 +87,7 @@ function StudioEnvironment() {
       />
       <Lightformer
         form="ring"
-        intensity={3.5}
+        intensity={4}
         color="#fff7db"
         position={[0, 3.8, -3]}
         rotation={[Math.PI / 2, 0, 0]}
@@ -76,22 +97,39 @@ function StudioEnvironment() {
   )
 }
 
-function Scene() {
+function Scene({ qualityTier, environmentResolution }) {
   return (
     <>
-      <ambientLight intensity={0.06} />
-      <MovingLights />
-      <GoldCoin />
-      <StudioEnvironment />
+      <ambientLight intensity={0.055} />
+      <MovingLights qualityTier={qualityTier} />
+      <GoldCoin qualityTier={qualityTier} />
+      <StudioEnvironment resolution={environmentResolution} />
     </>
   )
 }
 
 export default function App() {
+  const [qualityTier, setQualityTier] = useState(getInitialQualityTier)
+  const preset = QUALITY_PRESETS[qualityTier]
+  const deviceDpr = window.devicePixelRatio || 1
+  const dpr = Math.min(deviceDpr, preset.dpr)
+
+  const lowerQuality = useCallback(() => {
+    setQualityTier((current) => Math.max(0, current - 1))
+  }, [])
+
+  const raiseQuality = useCallback(() => {
+    setQualityTier((current) => Math.min(QUALITY_PRESETS.length - 1, current + 1))
+  }, [])
+
+  const useFallbackQuality = useCallback(() => {
+    setQualityTier(0)
+  }, [])
+
   return (
     <main className="coin-page" aria-label="Rotating 3D gold coin">
       <Canvas
-        dpr={[1, 2.5]}
+        dpr={dpr}
         camera={{ position: [0, 0, 6.35], fov: 34, near: 0.1, far: 50 }}
         gl={{
           antialias: true,
@@ -102,12 +140,23 @@ export default function App() {
           gl.setClearColor('#000000', 1)
           gl.outputColorSpace = THREE.SRGBColorSpace
           gl.toneMapping = THREE.ACESFilmicToneMapping
-          gl.toneMappingExposure = 1.22
+          gl.toneMappingExposure = 1.26
         }}
       >
-        <Suspense fallback={null}>
-          <Scene />
-        </Suspense>
+        <PerformanceMonitor
+          bounds={performanceBounds}
+          flipflops={4}
+          onDecline={lowerQuality}
+          onIncline={raiseQuality}
+          onFallback={useFallbackQuality}
+        >
+          <Suspense fallback={null}>
+            <Scene
+              qualityTier={qualityTier}
+              environmentResolution={preset.environmentResolution}
+            />
+          </Suspense>
+        </PerformanceMonitor>
       </Canvas>
     </main>
   )

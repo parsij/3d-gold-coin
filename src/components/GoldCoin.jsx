@@ -456,8 +456,9 @@ function ReededEdge({ reeds, palette }) {
   )
 }
 
-export default function GoldCoin({ qualityTier = 2 }) {
+export default function GoldCoin({ qualityTier = 2, captureMode = false }) {
   const coin = useRef(null)
+  const captureProgress = useRef(0)
   const config = QUALITY_PRESETS[qualityTier] ?? QUALITY_PRESETS[1]
   const logoTextures = useLogoTextures()
   const [logoColorMode, setLogoColorMode] = useState('default')
@@ -556,8 +557,50 @@ export default function GoldCoin({ qualityTier = 2 }) {
     }
   }, [logoRaisedAmount])
 
+  useEffect(() => {
+    if (!captureMode) return undefined
+
+    const normalizeProgress = (value) => {
+      const numeric = Number(value)
+      if (!Number.isFinite(numeric)) return null
+      return ((numeric % 1) + 1) % 1
+    }
+
+    const setProgress = (value) => {
+      const normalized = normalizeProgress(value)
+      if (normalized === null) return null
+      captureProgress.current = normalized
+      return normalized
+    }
+
+    const setFrame = (frame, totalFrames = 360) => {
+      const total = Number(totalFrames)
+      const index = Number(frame)
+      if (!Number.isFinite(index) || !Number.isFinite(total) || total <= 0) return null
+      return setProgress(index / total)
+    }
+
+    window.coinCapture = {
+      setProgress,
+      setFrame,
+      getProgress: () => captureProgress.current,
+      isReady: () => Boolean(logoTextures.defaultTexture && logoTextures.maskTexture),
+    }
+
+    return () => {
+      delete window.coinCapture
+    }
+  }, [captureMode, logoTextures.defaultTexture, logoTextures.maskTexture])
+
   useFrame(({ clock }, delta) => {
     if (!coin.current) return
+
+    if (captureMode) {
+      coin.current.rotation.x = -0.12
+      coin.current.rotation.y = -0.48 + captureProgress.current * Math.PI * 2
+      coin.current.rotation.z = 0.045
+      return
+    }
 
     coin.current.rotation.y += delta * 0.72
     coin.current.rotation.x = -0.12 + Math.sin(clock.elapsedTime * 0.5) * 0.035

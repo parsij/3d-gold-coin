@@ -1,4 +1,4 @@
-import { useFrame, useLoader, useThree } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 
@@ -73,6 +73,16 @@ const metalMaterial = {
   anisotropyRotation: Math.PI / 2,
 }
 
+function configureLogoTexture(texture, renderer) {
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.minFilter = THREE.LinearMipmapLinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.generateMipmaps = true
+  texture.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy())
+  texture.needsUpdate = true
+  return texture
+}
+
 function createLogoMaskTexture(sourceTexture, renderer) {
   const image = sourceTexture.image
   const sourceWidth = image.naturalWidth || image.width || 549
@@ -91,7 +101,14 @@ function createLogoMaskTexture(sourceTexture, renderer) {
   context.clearRect(0, 0, width, height)
   context.drawImage(image, 0, 0, width, height)
 
-  const pixels = context.getImageData(0, 0, width, height)
+  let pixels
+  try {
+    pixels = context.getImageData(0, 0, width, height)
+  } catch (error) {
+    console.warn('[3d-gold-coin] Logo mask unavailable; rendering without relief mask.', error)
+    return null
+  }
+
   const data = pixels.data
   const cornerIndexes = [
     0,
@@ -156,29 +173,66 @@ function createLogoMaskTexture(sourceTexture, renderer) {
 
 function useLogoTextures() {
   const { gl } = useThree()
-  const sourceTexture = useLoader(THREE.TextureLoader, LOGO_URL)
+  const [textures, setTextures] = useState({
+    defaultTexture: null,
+    maskTexture: null,
+  })
 
-  const textures = useMemo(() => {
-    const defaultTexture = sourceTexture.clone()
-    defaultTexture.colorSpace = THREE.SRGBColorSpace
-    defaultTexture.minFilter = THREE.LinearMipmapLinearFilter
-    defaultTexture.magFilter = THREE.LinearFilter
-    defaultTexture.generateMipmaps = true
-    defaultTexture.anisotropy = Math.min(16, gl.capabilities.getMaxAnisotropy())
-    defaultTexture.needsUpdate = true
+  useEffect(() => {
+    let cancelled = false
+    let defaultTexture = null
+    let maskTexture = null
+    const loader = new THREE.TextureLoader()
+    loader.setCrossOrigin('anonymous')
 
-    const maskTexture = createLogoMaskTexture(sourceTexture, gl)
+    loader.load(
+      LOGO_URL,
+      (sourceTexture) => {
+        if (cancelled) {
+          sourceTexture.dispose()
+          return
+        }
 
-    return { defaultTexture, maskTexture }
-  }, [gl, sourceTexture])
+        defaultTexture = configureLogoTexture(sourceTexture.clone(), gl)
 
-  useEffect(
-    () => () => {
-      textures.defaultTexture.dispose()
-      textures.maskTexture?.dispose()
-    },
-    [textures],
-  )
+        try {
+          maskTexture = createLogoMaskTexture(sourceTexture, gl)
+        } catch (error) {
+          console.warn(
+            '[3d-gold-coin] Logo mask generation failed; continuing without a mask.',
+            error,
+          )
+          maskTexture = null
+        }
+
+        sourceTexture.dispose()
+
+        if (cancelled) {
+          defaultTexture.dispose()
+          maskTexture?.dispose()
+          return
+        }
+
+        setTextures({ defaultTexture, maskTexture })
+      },
+      undefined,
+      (error) => {
+        console.warn(
+          '[3d-gold-coin] Logo asset failed to load; rendering the coin without a logo.',
+          error,
+        )
+        if (!cancelled) {
+          setTextures({ defaultTexture: null, maskTexture: null })
+        }
+      },
+    )
+
+    return () => {
+      cancelled = true
+      defaultTexture?.dispose()
+      maskTexture?.dispose()
+    }
+  }, [gl])
 
   return textures
 }
@@ -243,6 +297,8 @@ function LogoMaterial({ defaultTexture, maskTexture, colorMode, sideWall = false
     )
   }
 
+  if (!defaultTexture) return null
+
   return (
     <meshPhysicalMaterial
       map={defaultTexture}
@@ -263,10 +319,14 @@ function LogoMaterial({ defaultTexture, maskTexture, colorMode, sideWall = false
 }
 
 function LogoMark({ defaultTexture, maskTexture, colorMode, raisedAmount, fillLayers }) {
-  const layers = raisedAmount > 0 && maskTexture
+  const canRender = colorMode === 'default' ? Boolean(defaultTexture) : Boolean(maskTexture)
+  if (!canRender) return null
+
+  const effectiveRaisedAmount = maskTexture ? raisedAmount : 0
+  const layers = effectiveRaisedAmount > 0
     ? Array.from({ length: fillLayers }, (_, index) => {
         const progress = (index + 1) / (fillLayers + 1)
-        return LOGO_BASE_Z + raisedAmount * progress
+        return LOGO_BASE_Z + effectiveRaisedAmount * progress
       })
     : []
 
@@ -284,7 +344,7 @@ function LogoMark({ defaultTexture, maskTexture, colorMode, raisedAmount, fillLa
         </mesh>
       ))}
 
-      <mesh position={[0, 0, LOGO_BASE_Z + raisedAmount]} renderOrder={5}>
+      <mesh position={[0, 0, LOGO_BASE_Z + effectiveRaisedAmount]} renderOrder={5}>
         <planeGeometry args={[1.98, 2.22]} />
         <LogoMaterial
           defaultTexture={defaultTexture}

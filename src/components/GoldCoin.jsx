@@ -6,7 +6,7 @@ const RADIUS = 2
 const DEPTH = 0.34
 const LOGO_URL =
   'https://raw.githubusercontent.com/parsij/PistachioSwap/main/public/icons/PistachioLogo.svg'
-const GREEN_LOGO_COLOR = '#78c744'
+const GREEN_LOGO_COLOR = '#a8d8a8'
 const MAX_LOGO_RAISE = 0.2
 
 const QUALITY_PRESETS = [

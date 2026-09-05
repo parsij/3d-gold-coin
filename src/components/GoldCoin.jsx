@@ -7,6 +7,7 @@ const DEPTH = 0.34
 const LOGO_URL =
   'https://raw.githubusercontent.com/parsij/PistachioSwap/main/public/icons/PistachioLogo.svg'
 const GREEN_LOGO_COLOR = '#78c744'
+const MAX_LOGO_RAISE = 0.2
 
 const QUALITY_PRESETS = [
   {
@@ -15,6 +16,7 @@ const QUALITY_PRESETS = [
     torusSegments: 64,
     torusRadialSegments: 12,
     reeds: 64,
+    logoSegments: 40,
   },
   {
     curveSegments: 112,
@@ -22,6 +24,7 @@ const QUALITY_PRESETS = [
     torusSegments: 112,
     torusRadialSegments: 18,
     reeds: 96,
+    logoSegments: 64,
   },
   {
     curveSegments: 192,
@@ -29,6 +32,7 @@ const QUALITY_PRESETS = [
     torusSegments: 192,
     torusRadialSegments: 24,
     reeds: 132,
+    logoSegments: 96,
   },
   {
     curveSegments: 320,
@@ -36,6 +40,7 @@ const QUALITY_PRESETS = [
     torusSegments: 320,
     torusRadialSegments: 32,
     reeds: 180,
+    logoSegments: 144,
   },
 ]
 
@@ -186,24 +191,42 @@ function CoinBody({ curveSegments, bevelSegments }) {
   )
 }
 
-function FlatLogo({ defaultTexture, greenMaskTexture, colorMode }) {
+function LogoMark({ defaultTexture, greenMaskTexture, colorMode, raisedAmount, segments }) {
   const useGreen = colorMode === 'green' && greenMaskTexture
+  const isRaised = raisedAmount > 0 && greenMaskTexture
 
   return (
     <mesh position={[0, -0.015, 0.012]} renderOrder={4}>
-      <planeGeometry args={[1.98, 2.22]} />
+      <planeGeometry args={[1.98, 2.22, segments, segments]} />
       {useGreen ? (
-        <meshBasicMaterial
+        <meshPhysicalMaterial
           color={GREEN_LOGO_COLOR}
+          metalness={0.08}
+          roughness={0.3}
+          clearcoat={0.18}
+          clearcoatRoughness={0.18}
+          envMapIntensity={1.4}
           alphaMap={greenMaskTexture}
+          displacementMap={isRaised ? greenMaskTexture : null}
+          displacementScale={isRaised ? raisedAmount : 0}
+          displacementBias={0}
           transparent
           depthWrite={false}
           toneMapped={false}
           side={THREE.DoubleSide}
         />
       ) : (
-        <meshBasicMaterial
+        <meshPhysicalMaterial
           map={defaultTexture}
+          color="#ffffff"
+          metalness={0}
+          roughness={0.35}
+          clearcoat={0.12}
+          clearcoatRoughness={0.2}
+          envMapIntensity={1.1}
+          displacementMap={isRaised ? greenMaskTexture : null}
+          displacementScale={isRaised ? raisedAmount : 0}
+          displacementBias={0}
           transparent
           alphaTest={0.01}
           depthWrite={false}
@@ -215,7 +238,7 @@ function FlatLogo({ defaultTexture, greenMaskTexture, colorMode }) {
   )
 }
 
-function CoinFace({ z, flip = false, config, logoTextures, logoColorMode }) {
+function CoinFace({ z, flip = false, config, logoTextures, logoColorMode, logoRaisedAmount }) {
   return (
     <group position={[0, 0, z]} rotation={[0, flip ? Math.PI : 0, 0]}>
       <mesh>
@@ -263,10 +286,12 @@ function CoinFace({ z, flip = false, config, logoTextures, logoColorMode }) {
         />
       </mesh>
 
-      <FlatLogo
+      <LogoMark
         defaultTexture={logoTextures.defaultTexture}
         greenMaskTexture={logoTextures.greenMaskTexture}
         colorMode={logoColorMode}
+        raisedAmount={logoRaisedAmount}
+        segments={config.logoSegments}
       />
     </group>
   )
@@ -310,6 +335,7 @@ export default function GoldCoin({ qualityTier = 2 }) {
   const config = QUALITY_PRESETS[qualityTier] ?? QUALITY_PRESETS[1]
   const logoTextures = useLogoTextures()
   const [logoColorMode, setLogoColorMode] = useState('default')
+  const [logoRaisedAmount, setLogoRaisedAmount] = useState(0)
 
   useEffect(() => {
     const setColorMode = (value) => {
@@ -338,6 +364,36 @@ export default function GoldCoin({ qualityTier = 2 }) {
     }
   }, [logoColorMode])
 
+  useEffect(() => {
+    const setRaisedAmount = (value) => {
+      const numeric = Number(value)
+
+      if (!Number.isFinite(numeric) || numeric < 0) {
+        console.warn(
+          `[3d-gold-coin] Raise amount must be a number from 0 to ${MAX_LOGO_RAISE}.`,
+        )
+        return null
+      }
+
+      const nextAmount = Math.min(numeric, MAX_LOGO_RAISE)
+      setLogoRaisedAmount(nextAmount)
+      console.info(`[3d-gold-coin] logo raise: ${nextAmount}`)
+      return nextAmount
+    }
+
+    const coinRaised = (value) => setRaisedAmount(value)
+    coinRaised.set = setRaisedAmount
+    coinRaised.get = () => logoRaisedAmount
+    coinRaised.off = () => setRaisedAmount(0)
+    coinRaised.max = MAX_LOGO_RAISE
+
+    window.coinRaised = coinRaised
+
+    return () => {
+      delete window.coinRaised
+    }
+  }, [logoRaisedAmount])
+
   useFrame(({ clock }, delta) => {
     if (!coin.current) return
 
@@ -361,6 +417,7 @@ export default function GoldCoin({ qualityTier = 2 }) {
         config={config}
         logoTextures={logoTextures}
         logoColorMode={logoColorMode}
+        logoRaisedAmount={logoRaisedAmount}
       />
       <CoinFace
         z={-(DEPTH / 2 + 0.061)}
@@ -368,6 +425,7 @@ export default function GoldCoin({ qualityTier = 2 }) {
         config={config}
         logoTextures={logoTextures}
         logoColorMode={logoColorMode}
+        logoRaisedAmount={logoRaisedAmount}
       />
       <ReededEdge reeds={config.reeds} />
     </group>

@@ -1,0 +1,214 @@
+name: Render landing coin media
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'scripts/render-video-frames.mjs'
+      - 'package.json'
+      - 'vite.config.js'
+      - '.github/workflows/render-media.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: render-landing-coin-media
+  cancel-in-progress: true
+
+env:
+  RELEASE_TAG: landing-media
+  RELEASE_BASE: https://github.com/parsij/3d-gold-coin/releases/download/landing-media
+  FRAME_COUNT: '360'
+  MASTER_SIZE: '1440'
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.30.3 --activate
+
+      - name: Install app dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Install Chromium and system dependencies
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Build capture app
+        run: pnpm build
+
+      - name: Start local preview
+        run: |
+          pnpm exec vite preview --host 127.0.0.1 --port 4173 --strictPort > /tmp/coin-preview.log 2>&1 &
+          echo $! > /tmp/coin-preview.pid
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:4173/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/coin-preview.log
+          exit 1
+
+      - name: Render deterministic master frames
+        env:
+          COIN_FRAME_COUNT: ${{ env.FRAME_COUNT }}
+          COIN_RENDER_WIDTH: ${{ env.MASTER_SIZE }}
+          COIN_RENDER_HEIGHT: ${{ env.MASTER_SIZE }}
+          COIN_RENDER_URL: http://127.0.0.1:4173/?capture=1
+        run: pnpm render:frames
+
+      - name: Encode four adaptive qualities
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p media
+
+          cp render-frames/frame-000000.png media/coin-poster.png
+          ffmpeg -y -i render-frames/frame-000000.png \
+            -vf 'scale=1080:1080:flags=lanczos' \
+            -c:v libwebp -quality 86 -compression_level 6 \
+            media/coin-poster.webp
+
+          encode_mp4() {
+            local name="$1"
+            local size="$2"
+            local fps="$3"
+            local crf="$4"
+            local gop="$5"
+
+            ffmpeg -y \
+              -framerate 60 \
+              -i render-frames/frame-%06d.png \
+              -vf "fps=${fps},scale=${size}:${size}:flags=lanczos" \
+              -an \
+              -c:v libx264 \
+              -preset slow \
+              -tune animation \
+              -crf "${crf}" \
+              -pix_fmt yuv420p \
+              -movflags +faststart \
+              -g "${gop}" \
+              -keyint_min "${gop}" \
+              -sc_threshold 0 \
+              "media/coin-${name}.mp4"
+          }
+
+          encode_mp4 low 480 24 28 48
+          encode_mp4 medium 720 30 25 60
+          encode_mp4 high 1080 60 22 120
+          encode_mp4 ultra 1440 60 18 120
+
+      - name: Verify seamless media and generate manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for quality in low medium high ultra; do
+            ffprobe -v error \
+              -show_entries format=duration,size \
+              -of default=noprint_wrappers=1 \
+              "media/coin-${quality}.mp4"
+          done
+
+          low_bytes=$(stat -c%s media/coin-low.mp4)
+          medium_bytes=$(stat -c%s media/coin-medium.mp4)
+          high_bytes=$(stat -c%s media/coin-high.mp4)
+          ultra_bytes=$(stat -c%s media/coin-ultra.mp4)
+          poster_webp_bytes=$(stat -c%s media/coin-poster.webp)
+          poster_png_bytes=$(stat -c%s media/coin-poster.png)
+
+          cat > media/coin-media.json <<EOF
+          {
+            "version": "${GITHUB_SHA}",
+            "releaseTag": "${RELEASE_TAG}",
+            "durationSeconds": 6,
+            "masterFps": 60,
+            "masterFrames": 360,
+            "background": "#191919",
+            "poster": {
+              "webp": "${RELEASE_BASE}/coin-poster.webp",
+              "png": "${RELEASE_BASE}/coin-poster.png",
+              "webpBytes": ${poster_webp_bytes},
+              "pngBytes": ${poster_png_bytes},
+              "matchesVideoFrame": 0
+            },
+            "qualities": {
+              "low": {
+                "url": "${RELEASE_BASE}/coin-low.mp4",
+                "width": 480,
+                "height": 480,
+                "fps": 24,
+                "bytes": ${low_bytes}
+              },
+              "medium": {
+                "url": "${RELEASE_BASE}/coin-medium.mp4",
+                "width": 720,
+                "height": 720,
+                "fps": 30,
+                "bytes": ${medium_bytes}
+              },
+              "high": {
+                "url": "${RELEASE_BASE}/coin-high.mp4",
+                "width": 1080,
+                "height": 1080,
+                "fps": 60,
+                "bytes": ${high_bytes}
+              },
+              "ultra": {
+                "url": "${RELEASE_BASE}/coin-ultra.mp4",
+                "width": 1440,
+                "height": 1440,
+                "fps": 60,
+                "bytes": ${ultra_bytes}
+              }
+            }
+          }
+          EOF
+
+      - name: Publish or refresh GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" media/* --clobber
+          else
+            gh release create "$RELEASE_TAG" media/* \
+              --target "$GITHUB_SHA" \
+              --title 'Pistachio landing coin media' \
+              --notes 'Generated landing-page media. Assets are rebuilt from the 3D source and replaced in place so their download URLs stay stable.'
+          fi
+
+      - name: Upload render output for debugging
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: landing-coin-media-${{ github.run_number }}
+          path: |
+            media/
+            /tmp/coin-preview.log
+          if-no-files-found: ignore
+          retention-days: 7

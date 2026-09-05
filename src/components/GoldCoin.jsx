@@ -215,7 +215,11 @@ export default function GoldCoin({ qualityTier = 2 }) {
   })
 
   return (
-    <group ref={coin} rotation={[-0.12, -0.48, 0.045]}>
+    <group
+      ref={coin}
+      rotation={[-0.12, -0.48, 0.045]}
+      scale={[0.5, 0.5, 0.5]}
+    >
       <CoinBody
         curveSegments={config.curveSegments}
         bevelSegments={config.bevelSegments}

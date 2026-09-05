@@ -9,11 +9,14 @@ const QUALITY_PRESETS = [
   { name: 'low', dpr: 1, environmentResolution: 128 },
   { name: 'medium', dpr: 1.5, environmentResolution: 256 },
   { name: 'high', dpr: 2.25, environmentResolution: 512 },
+  { name: 'ultra', dpr: Number.POSITIVE_INFINITY, environmentResolution: 1024 },
 ]
 
 const QUALITY_INDEX = new Map(
   QUALITY_PRESETS.map((preset, index) => [preset.name, index]),
 )
+
+const AUTO_MAX_TIER = QUALITY_INDEX.get('high')
 
 function getInitialQualityTier() {
   const cores = navigator.hardwareConcurrency ?? 8
@@ -21,7 +24,7 @@ function getInitialQualityTier() {
 
   if (cores <= 4 || memory <= 4) return 0
   if (cores <= 6 || memory <= 6) return 1
-  return 2
+  return AUTO_MAX_TIER
 }
 
 function performanceBounds(refreshRate) {
@@ -129,7 +132,7 @@ export default function App() {
 
   const raiseQuality = useCallback(() => {
     if (!isAdaptive) return
-    setAdaptiveQualityTier((current) => Math.min(QUALITY_PRESETS.length - 1, current + 1))
+    setAdaptiveQualityTier((current) => Math.min(AUTO_MAX_TIER, current + 1))
   }, [isAdaptive])
 
   const useFallbackQuality = useCallback(() => {
@@ -150,7 +153,7 @@ export default function App() {
       const nextTier = QUALITY_INDEX.get(normalized)
       if (nextTier === undefined) {
         console.warn(
-          '[3d-gold-coin] Unknown quality. Use: low, medium, high, or auto.',
+          '[3d-gold-coin] Unknown quality. Use: low, medium, high, ultra, or auto.',
         )
         return null
       }
@@ -165,6 +168,7 @@ export default function App() {
       quality: preset.name,
       tier: qualityTier,
       dpr,
+      deviceDpr,
       environmentResolution: preset.environmentResolution,
     })
 
@@ -174,14 +178,15 @@ export default function App() {
       low: () => setQuality('low'),
       medium: () => setQuality('medium'),
       high: () => setQuality('high'),
+      ultra: () => setQuality('ultra'),
       auto: () => setQuality('auto'),
-      levels: ['low', 'medium', 'high', 'auto'],
+      levels: ['low', 'medium', 'high', 'ultra', 'auto'],
     }
 
     return () => {
       delete window.coinQuality
     }
-  }, [dpr, isAdaptive, preset, qualityTier])
+  }, [deviceDpr, dpr, isAdaptive, preset, qualityTier])
 
   return (
     <main className="coin-page" aria-label="Rotating 3D gold coin">

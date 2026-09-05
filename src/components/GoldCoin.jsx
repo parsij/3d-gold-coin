@@ -1,11 +1,12 @@
 import { useFrame, useLoader, useThree } from '@react-three/fiber'
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 
 const RADIUS = 2
 const DEPTH = 0.34
 const LOGO_URL =
   'https://raw.githubusercontent.com/parsij/PistachioSwap/main/public/icons/PistachioLogo.svg'
+const GREEN_LOGO_COLOR = '#78c744'
 
 const QUALITY_PRESETS = [
   {
@@ -49,24 +50,110 @@ const goldMaterial = {
   anisotropyRotation: Math.PI / 2,
 }
 
-function useLogoTexture() {
+function createLogoMaskTexture(sourceTexture, renderer) {
+  const image = sourceTexture.image
+  const width = image.naturalWidth || image.width || 549
+  const height = image.naturalHeight || image.height || 616
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+
+  const context = canvas.getContext('2d', { willReadFrequently: true })
+  if (!context) return null
+
+  context.clearRect(0, 0, width, height)
+  context.drawImage(image, 0, 0, width, height)
+
+  const pixels = context.getImageData(0, 0, width, height)
+  const data = pixels.data
+  const cornerIndexes = [
+    0,
+    (width - 1) * 4,
+    (height - 1) * width * 4,
+    (height * width - 1) * 4,
+  ]
+
+  const background = cornerIndexes.reduce(
+    (accumulator, index) => {
+      accumulator.r += data[index]
+      accumulator.g += data[index + 1]
+      accumulator.b += data[index + 2]
+      accumulator.a += data[index + 3]
+      return accumulator
+    },
+    { r: 0, g: 0, b: 0, a: 0 },
+  )
+
+  background.r /= cornerIndexes.length
+  background.g /= cornerIndexes.length
+  background.b /= cornerIndexes.length
+  background.a /= cornerIndexes.length
+
+  const transparentBackground = background.a < 245
+
+  for (let index = 0; index < data.length; index += 4) {
+    const sourceAlpha = data[index + 3] / 255
+    const redDistance = data[index] - background.r
+    const greenDistance = data[index + 1] - background.g
+    const blueDistance = data[index + 2] - background.b
+    const colorDistance = Math.min(
+      1,
+      Math.sqrt(
+        redDistance * redDistance +
+          greenDistance * greenDistance +
+          blueDistance * blueDistance,
+      ) / 170,
+    )
+    const mask = transparentBackground
+      ? sourceAlpha
+      : Math.max(0, Math.min(1, colorDistance * sourceAlpha))
+    const value = Math.round(mask * 255)
+
+    data[index] = value
+    data[index + 1] = value
+    data[index + 2] = value
+    data[index + 3] = 255
+  }
+
+  context.putImageData(pixels, 0, 0)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.NoColorSpace
+  texture.minFilter = THREE.LinearMipmapLinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.generateMipmaps = true
+  texture.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy())
+  texture.needsUpdate = true
+  return texture
+}
+
+function useLogoTextures() {
   const { gl } = useThree()
   const sourceTexture = useLoader(THREE.TextureLoader, LOGO_URL)
 
-  const texture = useMemo(() => {
-    const clone = sourceTexture.clone()
-    clone.colorSpace = THREE.SRGBColorSpace
-    clone.minFilter = THREE.LinearMipmapLinearFilter
-    clone.magFilter = THREE.LinearFilter
-    clone.generateMipmaps = true
-    clone.anisotropy = Math.min(16, gl.capabilities.getMaxAnisotropy())
-    clone.needsUpdate = true
-    return clone
+  const textures = useMemo(() => {
+    const defaultTexture = sourceTexture.clone()
+    defaultTexture.colorSpace = THREE.SRGBColorSpace
+    defaultTexture.minFilter = THREE.LinearMipmapLinearFilter
+    defaultTexture.magFilter = THREE.LinearFilter
+    defaultTexture.generateMipmaps = true
+    defaultTexture.anisotropy = Math.min(16, gl.capabilities.getMaxAnisotropy())
+    defaultTexture.needsUpdate = true
+
+    const greenMaskTexture = createLogoMaskTexture(sourceTexture, gl)
+
+    return { defaultTexture, greenMaskTexture }
   }, [gl, sourceTexture])
 
-  useEffect(() => () => texture.dispose(), [texture])
+  useEffect(
+    () => () => {
+      textures.defaultTexture.dispose()
+      textures.greenMaskTexture?.dispose()
+    },
+    [textures],
+  )
 
-  return texture
+  return textures
 }
 
 function CoinBody({ curveSegments, bevelSegments }) {
@@ -99,23 +186,36 @@ function CoinBody({ curveSegments, bevelSegments }) {
   )
 }
 
-function FlatLogo({ texture }) {
+function FlatLogo({ defaultTexture, greenMaskTexture, colorMode }) {
+  const useGreen = colorMode === 'green' && greenMaskTexture
+
   return (
     <mesh position={[0, -0.015, 0.012]} renderOrder={4}>
       <planeGeometry args={[1.98, 2.22]} />
-      <meshBasicMaterial
-        map={texture}
-        transparent
-        alphaTest={0.01}
-        depthWrite={false}
-        toneMapped={false}
-        side={THREE.DoubleSide}
-      />
+      {useGreen ? (
+        <meshBasicMaterial
+          color={GREEN_LOGO_COLOR}
+          alphaMap={greenMaskTexture}
+          transparent
+          depthWrite={false}
+          toneMapped={false}
+          side={THREE.DoubleSide}
+        />
+      ) : (
+        <meshBasicMaterial
+          map={defaultTexture}
+          transparent
+          alphaTest={0.01}
+          depthWrite={false}
+          toneMapped={false}
+          side={THREE.DoubleSide}
+        />
+      )}
     </mesh>
   )
 }
 
-function CoinFace({ z, flip = false, config, logoTexture }) {
+function CoinFace({ z, flip = false, config, logoTextures, logoColorMode }) {
   return (
     <group position={[0, 0, z]} rotation={[0, flip ? Math.PI : 0, 0]}>
       <mesh>
@@ -163,7 +263,11 @@ function CoinFace({ z, flip = false, config, logoTexture }) {
         />
       </mesh>
 
-      <FlatLogo texture={logoTexture} />
+      <FlatLogo
+        defaultTexture={logoTextures.defaultTexture}
+        greenMaskTexture={logoTextures.greenMaskTexture}
+        colorMode={logoColorMode}
+      />
     </group>
   )
 }
@@ -204,7 +308,35 @@ function ReededEdge({ reeds }) {
 export default function GoldCoin({ qualityTier = 2 }) {
   const coin = useRef(null)
   const config = QUALITY_PRESETS[qualityTier] ?? QUALITY_PRESETS[1]
-  const logoTexture = useLogoTexture()
+  const logoTextures = useLogoTextures()
+  const [logoColorMode, setLogoColorMode] = useState('default')
+
+  useEffect(() => {
+    const setColorMode = (value) => {
+      const normalized = String(value).trim().toLowerCase()
+
+      if (normalized !== 'green' && normalized !== 'default') {
+        console.warn('[3d-gold-coin] Unknown logo color. Use: green or default.')
+        return null
+      }
+
+      setLogoColorMode(normalized)
+      console.info(`[3d-gold-coin] logo color: ${normalized}`)
+      return normalized
+    }
+
+    window.coinColor = {
+      set: setColorMode,
+      get: () => logoColorMode,
+      green: () => setColorMode('green'),
+      default: () => setColorMode('default'),
+      modes: ['green', 'default'],
+    }
+
+    return () => {
+      delete window.coinColor
+    }
+  }, [logoColorMode])
 
   useFrame(({ clock }, delta) => {
     if (!coin.current) return
@@ -227,13 +359,15 @@ export default function GoldCoin({ qualityTier = 2 }) {
       <CoinFace
         z={DEPTH / 2 + 0.061}
         config={config}
-        logoTexture={logoTexture}
+        logoTextures={logoTextures}
+        logoColorMode={logoColorMode}
       />
       <CoinFace
         z={-(DEPTH / 2 + 0.061)}
         flip
         config={config}
-        logoTexture={logoTexture}
+        logoTextures={logoTextures}
+        logoColorMode={logoColorMode}
       />
       <ReededEdge reeds={config.reeds} />
     </group>

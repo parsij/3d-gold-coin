@@ -401,9 +401,9 @@ export default function GoldCoin({ qualityTier = 2 }) {
   const config = QUALITY_PRESETS[qualityTier] ?? QUALITY_PRESETS[1]
   const logoTextures = useLogoTextures()
   const [logoColorMode, setLogoColorMode] = useState('default')
-  const [coinColorMode, setCoinColorMode] = useState('gold')
+  const [coinColorMode, setCoinColorMode] = useState('green')
   const [logoRaisedAmount, setLogoRaisedAmount] = useState(0.07)
-  const palette = COIN_PALETTES[coinColorMode] ?? COIN_PALETTES.gold
+  const palette = COIN_PALETTES[coinColorMode] ?? COIN_PALETTES.green
 
   useEffect(() => {
     const setLogoColorModeSafe = (value) => {
@@ -440,7 +440,7 @@ export default function GoldCoin({ qualityTier = 2 }) {
   useEffect(() => {
     const setCoinColorModeSafe = (value) => {
       const normalized = String(value).trim().toLowerCase()
-      const alias = normalized === 'default' ? 'gold' : normalized
+      const alias = normalized === 'default' ? 'green' : normalized
 
       if (!COIN_PALETTES[alias]) {
         console.warn('[3d-gold-coin] Unknown coin color. Use: gold, green, or default.')
@@ -455,7 +455,7 @@ export default function GoldCoin({ qualityTier = 2 }) {
     window.coinColor = {
       set: setCoinColorModeSafe,
       get: () => coinColorMode,
-      default: () => setCoinColorModeSafe('gold'),
+      default: () => setCoinColorModeSafe('green'),
       gold: () => setCoinColorModeSafe('gold'),
       green: () => setCoinColorModeSafe('green'),
       modes: ['gold', 'green', 'default'],

@@ -17,7 +17,21 @@ const QUALITY_INDEX = new Map(
 )
 
 const AUTO_MAX_TIER = QUALITY_INDEX.get('high')
-const DEFAULT_MANUAL_QUALITY_TIER = QUALITY_INDEX.get('ultra')
+
+function isLikelyMobileDevice() {
+  const hasTouch = (navigator.maxTouchPoints ?? 0) > 0
+  const coarsePointer = window.matchMedia?.('(pointer: coarse)').matches ?? false
+  const shortestScreenSide = Math.min(
+    window.screen?.width ?? window.innerWidth,
+    window.screen?.height ?? window.innerHeight,
+  )
+
+  return hasTouch && (coarsePointer || shortestScreenSide <= 1024)
+}
+
+function getDefaultManualQualityTier() {
+  return QUALITY_INDEX.get(isLikelyMobileDevice() ? 'high' : 'ultra')
+}
 
 function getInitialQualityTier() {
   const cores = navigator.hardwareConcurrency ?? 8
@@ -118,7 +132,7 @@ function Scene({ qualityTier, environmentResolution }) {
 
 export default function App() {
   const [adaptiveQualityTier, setAdaptiveQualityTier] = useState(getInitialQualityTier)
-  const [manualQualityTier, setManualQualityTier] = useState(DEFAULT_MANUAL_QUALITY_TIER)
+  const [manualQualityTier, setManualQualityTier] = useState(getDefaultManualQualityTier)
 
   const isAdaptive = manualQualityTier === null
   const qualityTier = manualQualityTier ?? adaptiveQualityTier

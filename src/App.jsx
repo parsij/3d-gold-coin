@@ -1,15 +1,19 @@
 import { Environment, Lightformer, PerformanceMonitor } from '@react-three/drei'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { Suspense, useCallback, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 
 import GoldCoin from './components/GoldCoin.jsx'
 
 const QUALITY_PRESETS = [
-  { dpr: 1, environmentResolution: 128 },
-  { dpr: 1.5, environmentResolution: 256 },
-  { dpr: 2.25, environmentResolution: 512 },
+  { name: 'low', dpr: 1, environmentResolution: 128 },
+  { name: 'medium', dpr: 1.5, environmentResolution: 256 },
+  { name: 'high', dpr: 2.25, environmentResolution: 512 },
 ]
+
+const QUALITY_INDEX = new Map(
+  QUALITY_PRESETS.map((preset, index) => [preset.name, index]),
+)
 
 function getInitialQualityTier() {
   const cores = navigator.hardwareConcurrency ?? 8
@@ -109,22 +113,75 @@ function Scene({ qualityTier, environmentResolution }) {
 }
 
 export default function App() {
-  const [qualityTier, setQualityTier] = useState(getInitialQualityTier)
+  const [adaptiveQualityTier, setAdaptiveQualityTier] = useState(getInitialQualityTier)
+  const [manualQualityTier, setManualQualityTier] = useState(null)
+
+  const isAdaptive = manualQualityTier === null
+  const qualityTier = manualQualityTier ?? adaptiveQualityTier
   const preset = QUALITY_PRESETS[qualityTier]
   const deviceDpr = window.devicePixelRatio || 1
   const dpr = Math.min(deviceDpr, preset.dpr)
 
   const lowerQuality = useCallback(() => {
-    setQualityTier((current) => Math.max(0, current - 1))
-  }, [])
+    if (!isAdaptive) return
+    setAdaptiveQualityTier((current) => Math.max(0, current - 1))
+  }, [isAdaptive])
 
   const raiseQuality = useCallback(() => {
-    setQualityTier((current) => Math.min(QUALITY_PRESETS.length - 1, current + 1))
-  }, [])
+    if (!isAdaptive) return
+    setAdaptiveQualityTier((current) => Math.min(QUALITY_PRESETS.length - 1, current + 1))
+  }, [isAdaptive])
 
   const useFallbackQuality = useCallback(() => {
-    setQualityTier(0)
-  }, [])
+    if (!isAdaptive) return
+    setAdaptiveQualityTier(0)
+  }, [isAdaptive])
+
+  useEffect(() => {
+    const setQuality = (value) => {
+      const normalized = String(value).trim().toLowerCase()
+
+      if (normalized === 'auto') {
+        setManualQualityTier(null)
+        console.info('[3d-gold-coin] quality: auto')
+        return 'auto'
+      }
+
+      const nextTier = QUALITY_INDEX.get(normalized)
+      if (nextTier === undefined) {
+        console.warn(
+          '[3d-gold-coin] Unknown quality. Use: low, medium, high, or auto.',
+        )
+        return null
+      }
+
+      setManualQualityTier(nextTier)
+      console.info(`[3d-gold-coin] quality forced: ${normalized}`)
+      return normalized
+    }
+
+    const getQuality = () => ({
+      mode: isAdaptive ? 'auto' : 'manual',
+      quality: preset.name,
+      tier: qualityTier,
+      dpr,
+      environmentResolution: preset.environmentResolution,
+    })
+
+    window.coinQuality = {
+      set: setQuality,
+      get: getQuality,
+      low: () => setQuality('low'),
+      medium: () => setQuality('medium'),
+      high: () => setQuality('high'),
+      auto: () => setQuality('auto'),
+      levels: ['low', 'medium', 'high', 'auto'],
+    }
+
+    return () => {
+      delete window.coinQuality
+    }
+  }, [dpr, isAdaptive, preset, qualityTier])
 
   return (
     <main className="coin-page" aria-label="Rotating 3D gold coin">

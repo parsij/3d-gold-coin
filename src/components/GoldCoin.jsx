@@ -9,6 +9,7 @@ const LOGO_URL =
 const GREEN_LOGO_COLOR = '#a8d8a8'
 const MAX_LOGO_RAISE = 0.2
 const LOGO_MASK_SCALE = 2
+const LOGO_BASE_Z = 0.012
 
 const QUALITY_PRESETS = [
   {
@@ -17,6 +18,7 @@ const QUALITY_PRESETS = [
     torusSegments: 64,
     torusRadialSegments: 12,
     reeds: 64,
+    logoFillLayers: 8,
   },
   {
     curveSegments: 112,
@@ -24,6 +26,7 @@ const QUALITY_PRESETS = [
     torusSegments: 112,
     torusRadialSegments: 18,
     reeds: 96,
+    logoFillLayers: 12,
   },
   {
     curveSegments: 192,
@@ -31,6 +34,7 @@ const QUALITY_PRESETS = [
     torusSegments: 192,
     torusRadialSegments: 24,
     reeds: 132,
+    logoFillLayers: 18,
   },
   {
     curveSegments: 320,
@@ -38,11 +42,28 @@ const QUALITY_PRESETS = [
     torusSegments: 320,
     torusRadialSegments: 32,
     reeds: 180,
+    logoFillLayers: 28,
   },
 ]
 
-const goldMaterial = {
-  color: '#d69b2b',
+const COIN_PALETTES = {
+  gold: {
+    body: '#d69b2b',
+    face: '#dfaa3b',
+    outerRim: '#f0bd4a',
+    innerRim: '#b8750d',
+    edge: '#ad6d0c',
+  },
+  green: {
+    body: '#6da866',
+    face: '#86bd7f',
+    outerRim: '#a4d39d',
+    innerRim: '#4f814a',
+    edge: '#3f6c3a',
+  },
+}
+
+const metalMaterial = {
   metalness: 1,
   roughness: 0.17,
   clearcoat: 0.18,
@@ -146,15 +167,15 @@ function useLogoTextures() {
     defaultTexture.anisotropy = Math.min(16, gl.capabilities.getMaxAnisotropy())
     defaultTexture.needsUpdate = true
 
-    const greenMaskTexture = createLogoMaskTexture(sourceTexture, gl)
+    const maskTexture = createLogoMaskTexture(sourceTexture, gl)
 
-    return { defaultTexture, greenMaskTexture }
+    return { defaultTexture, maskTexture }
   }, [gl, sourceTexture])
 
   useEffect(
     () => () => {
       textures.defaultTexture.dispose()
-      textures.greenMaskTexture?.dispose()
+      textures.maskTexture?.dispose()
     },
     [textures],
   )
@@ -162,7 +183,7 @@ function useLogoTextures() {
   return textures
 }
 
-function CoinBody({ curveSegments, bevelSegments }) {
+function CoinBody({ curveSegments, bevelSegments, palette }) {
   const geometry = useMemo(() => {
     const shape = new THREE.Shape()
     shape.absarc(0, 0, RADIUS, 0, Math.PI * 2, false)
@@ -187,62 +208,110 @@ function CoinBody({ curveSegments, bevelSegments }) {
 
   return (
     <mesh geometry={geometry}>
-      <meshPhysicalMaterial {...goldMaterial} />
+      <meshPhysicalMaterial {...metalMaterial} color={palette.body} />
     </mesh>
   )
 }
 
-function LogoMark({ defaultTexture, greenMaskTexture, colorMode, raisedAmount }) {
-  const useGreen = colorMode === 'green' && greenMaskTexture
+function getLogoSolidColor(mode) {
+  if (mode === 'green') return GREEN_LOGO_COLOR
+  if (mode === 'black') return '#050505'
+  if (mode === 'white') return '#ffffff'
+  return '#ffffff'
+}
+
+function LogoMaterial({ defaultTexture, maskTexture, colorMode, sideWall = false }) {
+  const usesSolidColor = colorMode !== 'default' && maskTexture
+  const color = getLogoSolidColor(colorMode)
+
+  if (usesSolidColor) {
+    return (
+      <meshPhysicalMaterial
+        color={sideWall ? new THREE.Color(color).multiplyScalar(0.7) : color}
+        metalness={0.08}
+        roughness={sideWall ? 0.38 : 0.3}
+        clearcoat={sideWall ? 0.08 : 0.18}
+        clearcoatRoughness={0.18}
+        envMapIntensity={sideWall ? 0.9 : 1.4}
+        alphaMap={maskTexture}
+        alphaTest={0.015}
+        transparent
+        depthWrite
+        toneMapped={false}
+        side={THREE.DoubleSide}
+      />
+    )
+  }
 
   return (
-    <mesh
-      position={[0, -0.015, 0.012 + raisedAmount]}
-      renderOrder={4}
-    >
-      <planeGeometry args={[1.98, 2.22]} />
-      {useGreen ? (
-        <meshPhysicalMaterial
-          color={GREEN_LOGO_COLOR}
-          metalness={0.08}
-          roughness={0.3}
-          clearcoat={0.18}
-          clearcoatRoughness={0.18}
-          envMapIntensity={1.4}
-          alphaMap={greenMaskTexture}
-          transparent
-          depthWrite={false}
-          toneMapped={false}
-          side={THREE.DoubleSide}
-        />
-      ) : (
-        <meshPhysicalMaterial
-          map={defaultTexture}
-          color="#ffffff"
-          metalness={0}
-          roughness={0.35}
-          clearcoat={0.12}
-          clearcoatRoughness={0.2}
-          envMapIntensity={1.1}
-          transparent
-          alphaTest={0.01}
-          depthWrite={false}
-          toneMapped={false}
-          side={THREE.DoubleSide}
-        />
-      )}
-    </mesh>
+    <meshPhysicalMaterial
+      map={defaultTexture}
+      color={sideWall ? '#b8b8b8' : '#ffffff'}
+      metalness={0}
+      roughness={sideWall ? 0.42 : 0.35}
+      clearcoat={sideWall ? 0.04 : 0.12}
+      clearcoatRoughness={0.2}
+      envMapIntensity={sideWall ? 0.7 : 1.1}
+      alphaMap={sideWall ? maskTexture : null}
+      alphaTest={sideWall ? 0.015 : 0.01}
+      transparent
+      depthWrite
+      toneMapped={false}
+      side={THREE.DoubleSide}
+    />
   )
 }
 
-function CoinFace({ z, flip = false, config, logoTextures, logoColorMode, logoRaisedAmount }) {
+function LogoMark({ defaultTexture, maskTexture, colorMode, raisedAmount, fillLayers }) {
+  const layers = raisedAmount > 0 && maskTexture
+    ? Array.from({ length: fillLayers }, (_, index) => {
+        const progress = (index + 1) / (fillLayers + 1)
+        return LOGO_BASE_Z + raisedAmount * progress
+      })
+    : []
+
+  return (
+    <group position={[0, -0.015, 0]}>
+      {layers.map((z, index) => (
+        <mesh key={z} position={[0, 0, z]} renderOrder={3 + index / 100}>
+          <planeGeometry args={[1.98, 2.22]} />
+          <LogoMaterial
+            defaultTexture={defaultTexture}
+            maskTexture={maskTexture}
+            colorMode={colorMode}
+            sideWall
+          />
+        </mesh>
+      ))}
+
+      <mesh position={[0, 0, LOGO_BASE_Z + raisedAmount]} renderOrder={5}>
+        <planeGeometry args={[1.98, 2.22]} />
+        <LogoMaterial
+          defaultTexture={defaultTexture}
+          maskTexture={maskTexture}
+          colorMode={colorMode}
+        />
+      </mesh>
+    </group>
+  )
+}
+
+function CoinFace({
+  z,
+  flip = false,
+  config,
+  logoTextures,
+  logoColorMode,
+  logoRaisedAmount,
+  palette,
+}) {
   return (
     <group position={[0, 0, z]} rotation={[0, flip ? Math.PI : 0, 0]}>
       <mesh>
         <circleGeometry args={[1.79, config.curveSegments]} />
         <meshPhysicalMaterial
-          {...goldMaterial}
-          color="#dfaa3b"
+          {...metalMaterial}
+          color={palette.face}
           roughness={0.205}
           clearcoat={0.14}
           envMapIntensity={2.2}
@@ -260,8 +329,8 @@ function CoinFace({ z, flip = false, config, logoTextures, logoColorMode, logoRa
           ]}
         />
         <meshPhysicalMaterial
-          {...goldMaterial}
-          color="#f0bd4a"
+          {...metalMaterial}
+          color={palette.outerRim}
           roughness={0.105}
           envMapIntensity={3}
         />
@@ -277,23 +346,24 @@ function CoinFace({ z, flip = false, config, logoTextures, logoColorMode, logoRa
           ]}
         />
         <meshPhysicalMaterial
-          {...goldMaterial}
-          color="#b8750d"
+          {...metalMaterial}
+          color={palette.innerRim}
           roughness={0.24}
         />
       </mesh>
 
       <LogoMark
         defaultTexture={logoTextures.defaultTexture}
-        greenMaskTexture={logoTextures.greenMaskTexture}
+        maskTexture={logoTextures.maskTexture}
         colorMode={logoColorMode}
         raisedAmount={logoRaisedAmount}
+        fillLayers={config.logoFillLayers}
       />
     </group>
   )
 }
 
-function ReededEdge({ reeds }) {
+function ReededEdge({ reeds, palette }) {
   const mesh = useRef(null)
   const helper = useMemo(() => new THREE.Object3D(), [])
 
@@ -317,8 +387,8 @@ function ReededEdge({ reeds }) {
     <instancedMesh key={reeds} ref={mesh} args={[null, null, reeds]}>
       <boxGeometry args={[0.034, 0.095, DEPTH * 1.16]} />
       <meshPhysicalMaterial
-        {...goldMaterial}
-        color="#ad6d0c"
+        {...metalMaterial}
+        color={palette.edge}
         roughness={0.27}
         envMapIntensity={2.1}
       />
@@ -331,14 +401,19 @@ export default function GoldCoin({ qualityTier = 2 }) {
   const config = QUALITY_PRESETS[qualityTier] ?? QUALITY_PRESETS[1]
   const logoTextures = useLogoTextures()
   const [logoColorMode, setLogoColorMode] = useState('default')
+  const [coinColorMode, setCoinColorMode] = useState('gold')
   const [logoRaisedAmount, setLogoRaisedAmount] = useState(0)
+  const palette = COIN_PALETTES[coinColorMode] ?? COIN_PALETTES.gold
 
   useEffect(() => {
-    const setColorMode = (value) => {
+    const setLogoColorModeSafe = (value) => {
       const normalized = String(value).trim().toLowerCase()
+      const allowed = ['default', 'green', 'black', 'white']
 
-      if (normalized !== 'green' && normalized !== 'default') {
-        console.warn('[3d-gold-coin] Unknown logo color. Use: green or default.')
+      if (!allowed.includes(normalized)) {
+        console.warn(
+          '[3d-gold-coin] Unknown logo color. Use: default, green, black, or white.',
+        )
         return null
       }
 
@@ -347,18 +422,49 @@ export default function GoldCoin({ qualityTier = 2 }) {
       return normalized
     }
 
-    window.coinColor = {
-      set: setColorMode,
+    window.logoColor = {
+      set: setLogoColorModeSafe,
       get: () => logoColorMode,
-      green: () => setColorMode('green'),
-      default: () => setColorMode('default'),
-      modes: ['green', 'default'],
+      default: () => setLogoColorModeSafe('default'),
+      green: () => setLogoColorModeSafe('green'),
+      black: () => setLogoColorModeSafe('black'),
+      white: () => setLogoColorModeSafe('white'),
+      modes: ['default', 'green', 'black', 'white'],
+    }
+
+    return () => {
+      delete window.logoColor
+    }
+  }, [logoColorMode])
+
+  useEffect(() => {
+    const setCoinColorModeSafe = (value) => {
+      const normalized = String(value).trim().toLowerCase()
+      const alias = normalized === 'default' ? 'gold' : normalized
+
+      if (!COIN_PALETTES[alias]) {
+        console.warn('[3d-gold-coin] Unknown coin color. Use: gold, green, or default.')
+        return null
+      }
+
+      setCoinColorMode(alias)
+      console.info(`[3d-gold-coin] coin color: ${alias}`)
+      return alias
+    }
+
+    window.coinColor = {
+      set: setCoinColorModeSafe,
+      get: () => coinColorMode,
+      default: () => setCoinColorModeSafe('gold'),
+      gold: () => setCoinColorModeSafe('gold'),
+      green: () => setCoinColorModeSafe('green'),
+      modes: ['gold', 'green', 'default'],
     }
 
     return () => {
       delete window.coinColor
     }
-  }, [logoColorMode])
+  }, [coinColorMode])
 
   useEffect(() => {
     const setRaisedAmount = (value) => {
@@ -407,6 +513,7 @@ export default function GoldCoin({ qualityTier = 2 }) {
       <CoinBody
         curveSegments={config.curveSegments}
         bevelSegments={config.bevelSegments}
+        palette={palette}
       />
       <CoinFace
         z={DEPTH / 2 + 0.061}
@@ -414,6 +521,7 @@ export default function GoldCoin({ qualityTier = 2 }) {
         logoTextures={logoTextures}
         logoColorMode={logoColorMode}
         logoRaisedAmount={logoRaisedAmount}
+        palette={palette}
       />
       <CoinFace
         z={-(DEPTH / 2 + 0.061)}
@@ -422,8 +530,9 @@ export default function GoldCoin({ qualityTier = 2 }) {
         logoTextures={logoTextures}
         logoColorMode={logoColorMode}
         logoRaisedAmount={logoRaisedAmount}
+        palette={palette}
       />
-      <ReededEdge reeds={config.reeds} />
+      <ReededEdge reeds={config.reeds} palette={palette} />
     </group>
   )
 }

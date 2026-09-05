@@ -18,6 +18,10 @@ const QUALITY_INDEX = new Map(
 
 const AUTO_MAX_TIER = QUALITY_INDEX.get('high')
 
+function isCaptureMode() {
+  return new URLSearchParams(window.location.search).get('capture') === '1'
+}
+
 function isLikelyMobileDevice() {
   const hasTouch = (navigator.maxTouchPoints ?? 0) > 0
   const coarsePointer = window.matchMedia?.('(pointer: coarse)').matches ?? false
@@ -30,6 +34,7 @@ function isLikelyMobileDevice() {
 }
 
 function getDefaultManualQualityTier() {
+  if (isCaptureMode()) return QUALITY_INDEX.get('ultra')
   return QUALITY_INDEX.get(isLikelyMobileDevice() ? 'high' : 'ultra')
 }
 
@@ -46,11 +51,17 @@ function performanceBounds(refreshRate) {
   return [Math.min(45, refreshRate * 0.68), Math.min(58, refreshRate * 0.9)]
 }
 
-function MovingLights({ qualityTier }) {
+function MovingLights({ qualityTier, captureMode }) {
   const warm = useRef(null)
   const white = useRef(null)
 
   useFrame(({ clock }) => {
+    if (captureMode) {
+      warm.current?.position.set(4.7, 1.4, 3.7)
+      white.current?.position.set(-4.2, -1.1, 4.4)
+      return
+    }
+
     const time = clock.getElapsedTime()
 
     if (warm.current) {
@@ -119,18 +130,19 @@ function StudioEnvironment({ resolution }) {
   )
 }
 
-function Scene({ qualityTier, environmentResolution }) {
+function Scene({ qualityTier, environmentResolution, captureMode }) {
   return (
     <>
       <ambientLight intensity={0.055} />
-      <MovingLights qualityTier={qualityTier} />
-      <GoldCoin qualityTier={qualityTier} />
+      <MovingLights qualityTier={qualityTier} captureMode={captureMode} />
+      <GoldCoin qualityTier={qualityTier} captureMode={captureMode} />
       <StudioEnvironment resolution={environmentResolution} />
     </>
   )
 }
 
 export default function App() {
+  const captureMode = isCaptureMode()
   const [adaptiveQualityTier, setAdaptiveQualityTier] = useState(getInitialQualityTier)
   const [manualQualityTier, setManualQualityTier] = useState(getDefaultManualQualityTier)
 
@@ -204,7 +216,11 @@ export default function App() {
   }, [deviceDpr, dpr, isAdaptive, preset, qualityTier])
 
   return (
-    <main className="coin-page" aria-label="Rotating 3D gold coin">
+    <main
+      className="coin-page"
+      aria-label="Rotating 3D gold coin"
+      style={captureMode ? { background: '#191919' } : undefined}
+    >
       <Canvas
         dpr={dpr}
         camera={{ position: [0, 0, 6.35], fov: 34, near: 0.1, far: 50 }}
@@ -214,7 +230,7 @@ export default function App() {
           powerPreference: 'high-performance',
         }}
         onCreated={({ gl }) => {
-          gl.setClearColor('#000000', 1)
+          gl.setClearColor(captureMode ? '#191919' : '#000000', 1)
           gl.outputColorSpace = THREE.SRGBColorSpace
           gl.toneMapping = THREE.ACESFilmicToneMapping
           gl.toneMappingExposure = 1.26
@@ -231,6 +247,7 @@ export default function App() {
             <Scene
               qualityTier={qualityTier}
               environmentResolution={preset.environmentResolution}
+              captureMode={captureMode}
             />
           </Suspense>
         </PerformanceMonitor>

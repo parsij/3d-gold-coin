@@ -8,6 +8,7 @@ const LOGO_URL =
   'https://raw.githubusercontent.com/parsij/PistachioSwap/main/public/icons/PistachioLogo.svg'
 const GREEN_LOGO_COLOR = '#a8d8a8'
 const MAX_LOGO_RAISE = 0.2
+const LOGO_MASK_SCALE = 2
 
 const QUALITY_PRESETS = [
   {
@@ -16,7 +17,6 @@ const QUALITY_PRESETS = [
     torusSegments: 64,
     torusRadialSegments: 12,
     reeds: 64,
-    logoSegments: 40,
   },
   {
     curveSegments: 112,
@@ -24,7 +24,6 @@ const QUALITY_PRESETS = [
     torusSegments: 112,
     torusRadialSegments: 18,
     reeds: 96,
-    logoSegments: 64,
   },
   {
     curveSegments: 192,
@@ -32,7 +31,6 @@ const QUALITY_PRESETS = [
     torusSegments: 192,
     torusRadialSegments: 24,
     reeds: 132,
-    logoSegments: 96,
   },
   {
     curveSegments: 320,
@@ -40,7 +38,6 @@ const QUALITY_PRESETS = [
     torusSegments: 320,
     torusRadialSegments: 32,
     reeds: 180,
-    logoSegments: 144,
   },
 ]
 
@@ -57,8 +54,10 @@ const goldMaterial = {
 
 function createLogoMaskTexture(sourceTexture, renderer) {
   const image = sourceTexture.image
-  const width = image.naturalWidth || image.width || 549
-  const height = image.naturalHeight || image.height || 616
+  const sourceWidth = image.naturalWidth || image.width || 549
+  const sourceHeight = image.naturalHeight || image.height || 616
+  const width = Math.max(2, Math.round(sourceWidth * LOGO_MASK_SCALE))
+  const height = Math.max(2, Math.round(sourceHeight * LOGO_MASK_SCALE))
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
@@ -66,6 +65,8 @@ function createLogoMaskTexture(sourceTexture, renderer) {
   const context = canvas.getContext('2d', { willReadFrequently: true })
   if (!context) return null
 
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
   context.clearRect(0, 0, width, height)
   context.drawImage(image, 0, 0, width, height)
 
@@ -191,13 +192,15 @@ function CoinBody({ curveSegments, bevelSegments }) {
   )
 }
 
-function LogoMark({ defaultTexture, greenMaskTexture, colorMode, raisedAmount, segments }) {
+function LogoMark({ defaultTexture, greenMaskTexture, colorMode, raisedAmount }) {
   const useGreen = colorMode === 'green' && greenMaskTexture
-  const isRaised = raisedAmount > 0 && greenMaskTexture
 
   return (
-    <mesh position={[0, -0.015, 0.012]} renderOrder={4}>
-      <planeGeometry args={[1.98, 2.22, segments, segments]} />
+    <mesh
+      position={[0, -0.015, 0.012 + raisedAmount]}
+      renderOrder={4}
+    >
+      <planeGeometry args={[1.98, 2.22]} />
       {useGreen ? (
         <meshPhysicalMaterial
           color={GREEN_LOGO_COLOR}
@@ -207,9 +210,6 @@ function LogoMark({ defaultTexture, greenMaskTexture, colorMode, raisedAmount, s
           clearcoatRoughness={0.18}
           envMapIntensity={1.4}
           alphaMap={greenMaskTexture}
-          displacementMap={isRaised ? greenMaskTexture : null}
-          displacementScale={isRaised ? raisedAmount : 0}
-          displacementBias={0}
           transparent
           depthWrite={false}
           toneMapped={false}
@@ -224,9 +224,6 @@ function LogoMark({ defaultTexture, greenMaskTexture, colorMode, raisedAmount, s
           clearcoat={0.12}
           clearcoatRoughness={0.2}
           envMapIntensity={1.1}
-          displacementMap={isRaised ? greenMaskTexture : null}
-          displacementScale={isRaised ? raisedAmount : 0}
-          displacementBias={0}
           transparent
           alphaTest={0.01}
           depthWrite={false}
@@ -291,7 +288,6 @@ function CoinFace({ z, flip = false, config, logoTextures, logoColorMode, logoRa
         greenMaskTexture={logoTextures.greenMaskTexture}
         colorMode={logoColorMode}
         raisedAmount={logoRaisedAmount}
-        segments={config.logoSegments}
       />
     </group>
   )

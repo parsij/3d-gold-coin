@@ -402,7 +402,7 @@ export default function GoldCoin({ qualityTier = 2 }) {
   const logoTextures = useLogoTextures()
   const [logoColorMode, setLogoColorMode] = useState('default')
   const [coinColorMode, setCoinColorMode] = useState('gold')
-  const [logoRaisedAmount, setLogoRaisedAmount] = useState(0)
+  const [logoRaisedAmount, setLogoRaisedAmount] = useState(0.07)
   const palette = COIN_PALETTES[coinColorMode] ?? COIN_PALETTES.gold
 
   useEffect(() => {

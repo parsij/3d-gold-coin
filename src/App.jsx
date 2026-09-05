@@ -17,6 +17,7 @@ const QUALITY_INDEX = new Map(
 )
 
 const AUTO_MAX_TIER = QUALITY_INDEX.get('high')
+const DEFAULT_MANUAL_QUALITY_TIER = QUALITY_INDEX.get('ultra')
 
 function getInitialQualityTier() {
   const cores = navigator.hardwareConcurrency ?? 8
@@ -117,7 +118,7 @@ function Scene({ qualityTier, environmentResolution }) {
 
 export default function App() {
   const [adaptiveQualityTier, setAdaptiveQualityTier] = useState(getInitialQualityTier)
-  const [manualQualityTier, setManualQualityTier] = useState(null)
+  const [manualQualityTier, setManualQualityTier] = useState(DEFAULT_MANUAL_QUALITY_TIER)
 
   const isAdaptive = manualQualityTier === null
   const qualityTier = manualQualityTier ?? adaptiveQualityTier

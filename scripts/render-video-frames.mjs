@@ -1,4 +1,4 @@
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { chromium } from 'playwright'
@@ -57,6 +57,7 @@ try {
 
   await page.waitForFunction(
     () => window.coinCapture?.isReady?.() === true,
+    null,
     { timeout: 120_000 },
   )
 
@@ -79,12 +80,22 @@ try {
       () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
     )
 
-    const filename = `frame-${String(frame).padStart(6, '0')}.png`
-    await page.screenshot({
-      path: path.join(OUTPUT_DIR, filename),
-      type: 'png',
-      animations: 'disabled',
+    const dataUrl = await page.evaluate(() => {
+      const canvas = document.querySelector('canvas')
+      if (!canvas) throw new Error('Capture canvas disappeared')
+      return canvas.toDataURL('image/png')
     })
+
+    const prefix = 'data:image/png;base64,'
+    if (!dataUrl.startsWith(prefix)) {
+      throw new Error('Unexpected canvas image format')
+    }
+
+    const filename = `frame-${String(frame).padStart(6, '0')}.png`
+    await writeFile(
+      path.join(OUTPUT_DIR, filename),
+      Buffer.from(dataUrl.slice(prefix.length), 'base64'),
+    )
 
     if (frame % 30 === 0 || frame === FRAME_COUNT - 1) {
       console.log(`Rendered ${frame + 1}/${FRAME_COUNT}`)

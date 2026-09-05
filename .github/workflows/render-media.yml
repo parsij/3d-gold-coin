@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - 'src/**'
-      - 'scripts/render-video-stream.mjs'
+      - 'scripts/render-video-frames.mjs'
       - 'package.json'
       - 'vite.config.js'
       - '.github/workflows/render-media.yml'
@@ -21,8 +21,8 @@ concurrency:
 env:
   RELEASE_TAG: landing-media
   RELEASE_BASE: https://github.com/parsij/3d-gold-coin/releases/download/landing-media
+  KEYFRAME_COUNT: '5'
   DURATION_SECONDS: '8.73'
-  CAPTURE_FPS: '30'
   MASTER_SIZE: '1440'
 
 jobs:
@@ -71,41 +71,89 @@ jobs:
           cat /tmp/coin-preview.log
           exit 1
 
-      - name: Record one full WebGL rotation
+      - name: Render five deterministic keyframes
         env:
+          COIN_FRAME_COUNT: ${{ env.KEYFRAME_COUNT }}
           COIN_RENDER_WIDTH: ${{ env.MASTER_SIZE }}
           COIN_RENDER_HEIGHT: ${{ env.MASTER_SIZE }}
-          COIN_CAPTURE_FPS: ${{ env.CAPTURE_FPS }}
-          COIN_DURATION_SECONDS: ${{ env.DURATION_SECONDS }}
           COIN_RENDER_URL: http://127.0.0.1:4173/?capture=1
-          COIN_VIDEO_FILE: media/coin-master.webm
-        run: pnpm render:video
+        run: pnpm render:frames
 
-      - name: Create poster and four adaptive qualities
+      - name: Create poster and interpolated master video
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p media
+
+          cp render-frames/frame-000000.png media/coin-poster.png
+          ffmpeg -y -i media/coin-poster.png \
+            -vf 'scale=1080:1080:flags=lanczos' \
+            -c:v libwebp -quality 86 -compression_level 6 \
+            media/coin-poster.webp
+
+          segment=$(python3 - <<'PY'
+          print(8.73 / 5)
+          PY
+          )
+
+          cat > media/keyframes.txt <<EOF
+          file '../render-frames/frame-000000.png'
+          duration ${segment}
+          file '../render-frames/frame-000001.png'
+          duration ${segment}
+          file '../render-frames/frame-000002.png'
+          duration ${segment}
+          file '../render-frames/frame-000003.png'
+          duration ${segment}
+          file '../render-frames/frame-000004.png'
+          duration ${segment}
+          file '../render-frames/frame-000000.png'
+          EOF
+
+          ffmpeg -y \
+            -f concat -safe 0 -i media/keyframes.txt \
+            -vf "minterpolate=fps=60:mi_mode=blend,trim=duration=${DURATION_SECONDS},setpts=PTS-STARTPTS" \
+            -an \
+            -c:v libx264 \
+            -preset veryfast \
+            -tune animation \
+            -crf 18 \
+            -pix_fmt yuv420p \
+            -movflags +faststart \
+            media/coin-master.mp4
+
+      - name: Encode four adaptive qualities
         shell: bash
         run: |
           set -euo pipefail
 
-          ffmpeg -y \
-            -i media/coin-master.webm \
-            -vf 'select=eq(n\,0),scale=1080:1080:flags=lanczos' \
-            -frames:v 1 \
-            media/coin-poster.png
+          encode_variant() {
+            local name="$1"
+            local size="$2"
+            local fps="$3"
+            local crf="$4"
+            local gop="$5"
 
-          ffmpeg -y \
-            -i media/coin-poster.png \
-            -c:v libwebp \
-            -quality 86 \
-            -compression_level 6 \
-            media/coin-poster.webp
+            ffmpeg -y \
+              -i media/coin-master.mp4 \
+              -vf "fps=${fps},scale=${size}:${size}:flags=lanczos" \
+              -an \
+              -c:v libx264 \
+              -preset veryfast \
+              -tune animation \
+              -crf "${crf}" \
+              -pix_fmt yuv420p \
+              -movflags +faststart \
+              -g "${gop}" \
+              -keyint_min "${gop}" \
+              -sc_threshold 0 \
+              "media/coin-${name}.mp4"
+          }
 
-          ffmpeg -y \
-            -i media/coin-master.webm \
-            -filter_complex "[0:v]trim=duration=${DURATION_SECONDS},setpts=PTS-STARTPTS,minterpolate=fps=60:mi_mode=blend,split=4[vlow0][vmedium0][vhigh0][vultra0];[vlow0]fps=24,scale=480:480:flags=lanczos[vlow];[vmedium0]fps=30,scale=720:720:flags=lanczos[vmedium];[vhigh0]scale=1080:1080:flags=lanczos[vhigh];[vultra0]scale=1440:1440:flags=lanczos[vultra]" \
-            -map '[vlow]' -an -c:v libx264 -preset fast -tune animation -crf 28 -pix_fmt yuv420p -movflags +faststart -g 48 -keyint_min 48 -sc_threshold 0 media/coin-low.mp4 \
-            -map '[vmedium]' -an -c:v libx264 -preset fast -tune animation -crf 25 -pix_fmt yuv420p -movflags +faststart -g 60 -keyint_min 60 -sc_threshold 0 media/coin-medium.mp4 \
-            -map '[vhigh]' -an -c:v libx264 -preset fast -tune animation -crf 22 -pix_fmt yuv420p -movflags +faststart -g 120 -keyint_min 120 -sc_threshold 0 media/coin-high.mp4 \
-            -map '[vultra]' -an -c:v libx264 -preset fast -tune animation -crf 18 -pix_fmt yuv420p -movflags +faststart -g 120 -keyint_min 120 -sc_threshold 0 media/coin-ultra.mp4
+          encode_variant low 480 24 28 48
+          encode_variant medium 720 30 25 60
+          encode_variant high 1080 60 22 120
+          encode_variant ultra 1440 60 18 120
 
       - name: Verify media and generate manifest
         shell: bash
@@ -131,7 +179,7 @@ jobs:
             "version": "${GITHUB_SHA}",
             "releaseTag": "${RELEASE_TAG}",
             "durationSeconds": ${DURATION_SECONDS},
-            "captureFps": ${CAPTURE_FPS},
+            "renderedKeyframes": ${KEYFRAME_COUNT},
             "outputMaxFps": 60,
             "background": "#191919",
             "poster": {
@@ -197,7 +245,7 @@ jobs:
             gh release create "$RELEASE_TAG" "${assets[@]}" \
               --target "$GITHUB_SHA" \
               --title 'Pistachio landing coin media' \
-              --notes 'Generated landing-page media. Assets are rebuilt from the 3D source and replaced in place so their download URLs stay stable.'
+              --notes 'Generated landing-page media from five deterministic 3D keyframes. Assets are replaced in place so their download URLs stay stable.'
           fi
 
       - name: Upload render output for debugging
@@ -207,6 +255,7 @@ jobs:
           name: landing-coin-media-${{ github.run_number }}
           path: |
             media/
+            render-frames/
             /tmp/coin-preview.log
           if-no-files-found: ignore
           retention-days: 7

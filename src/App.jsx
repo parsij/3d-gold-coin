@@ -18,8 +18,17 @@ const QUALITY_INDEX = new Map(
 
 const AUTO_MAX_TIER = QUALITY_INDEX.get('high')
 
+function captureParams() {
+  return new URLSearchParams(window.location.search)
+}
+
 function isCaptureMode() {
-  return new URLSearchParams(window.location.search).get('capture') === '1'
+  return captureParams().get('capture') === '1'
+}
+
+function isTransparentCaptureMode() {
+  const params = captureParams()
+  return params.get('capture') === '1' && params.get('alpha') === '1'
 }
 
 function isLikelyMobileDevice() {
@@ -143,6 +152,7 @@ function Scene({ qualityTier, environmentResolution, captureMode }) {
 
 export default function App() {
   const captureMode = isCaptureMode()
+  const transparentCapture = isTransparentCaptureMode()
   const [adaptiveQualityTier, setAdaptiveQualityTier] = useState(getInitialQualityTier)
   const [manualQualityTier, setManualQualityTier] = useState(getDefaultManualQualityTier)
 
@@ -219,22 +229,42 @@ export default function App() {
     <main
       className="coin-page"
       aria-label="Rotating 3D gold coin"
-      style={captureMode ? { background: '#191919' } : undefined}
+      style={
+        captureMode
+          ? { background: transparentCapture ? 'transparent' : '#191919' }
+          : undefined
+      }
     >
       <Canvas
         dpr={dpr}
         camera={{ position: [0, 0, 6.35], fov: 34, near: 0.1, far: 50 }}
         gl={{
           antialias: true,
-          alpha: false,
+          alpha: transparentCapture,
+          premultipliedAlpha: transparentCapture,
           powerPreference: 'high-performance',
           preserveDrawingBuffer: captureMode,
         }}
-        onCreated={({ gl }) => {
-          gl.setClearColor(captureMode ? '#191919' : '#000000', 1)
+        onCreated={({ gl, camera }) => {
+          gl.setClearColor(transparentCapture ? '#000000' : captureMode ? '#191919' : '#000000', transparentCapture ? 0 : 1)
           gl.outputColorSpace = THREE.SRGBColorSpace
           gl.toneMapping = THREE.ACESFilmicToneMapping
           gl.toneMappingExposure = 1.26
+
+          if (captureMode) {
+            window.coinCaptureCamera = {
+              setJitter: (x = 0, y = 0) => {
+                const width = Math.max(1, gl.domElement.width)
+                const height = Math.max(1, gl.domElement.height)
+                camera.setViewOffset(width, height, Number(x) || 0, Number(y) || 0, width, height)
+                camera.updateProjectionMatrix()
+              },
+              clearJitter: () => {
+                camera.clearViewOffset()
+                camera.updateProjectionMatrix()
+              },
+            }
+          }
         }}
       >
         <PerformanceMonitor

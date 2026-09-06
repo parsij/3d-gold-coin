@@ -117,8 +117,9 @@ encode_mp4() {
   local fps="$3"
   local crf="$4"
   local gop="$5"
+  local level="$6"
 
-  echo "==> Encoding ${name}: ${size}x${size} @ ${fps} fps"
+  echo "==> Encoding ${name}: ${size}x${size} @ ${fps} fps (H.264 level ${level})"
   ffmpeg -hide_banner -loglevel error -y \
     -i media/coin-master.webm \
     -vf "fps=${fps},scale=${size}:${size}:flags=lanczos" \
@@ -127,7 +128,7 @@ encode_mp4() {
     -preset medium \
     -tune animation \
     -profile:v high \
-    -level:v 4.1 \
+    -level:v "$level" \
     -tag:v avc1 \
     -crf "$crf" \
     -pix_fmt yuv420p \
@@ -138,13 +139,13 @@ encode_mp4() {
     "media/coin-${name}.mp4"
 }
 
-encode_mp4 low 480 24 28 48
-encode_mp4 medium 720 30 25 60
-encode_mp4 high 1080 60 22 120
-encode_mp4 ultra 1440 60 18 120
+encode_mp4 low 480 24 28 48 4.1
+encode_mp4 medium 720 30 25 60 4.1
+encode_mp4 high 1080 60 22 120 4.2
+encode_mp4 ultra 1440 60 18 120 4.2
 
 for quality in low medium high ultra; do
-  ffprobe -v error -show_entries format=duration,size \
+  ffprobe -v error -show_entries stream=codec_name,profile,level,width,height,pix_fmt:format=duration,size \
     -of default=noprint_wrappers=1 "media/coin-${quality}.mp4"
 done
 

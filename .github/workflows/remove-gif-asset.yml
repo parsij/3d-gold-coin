@@ -35,5 +35,5 @@ jobs:
             curl --fail --location "$manifest_url" -o coin-media.json
             jq 'del(.fallbackGif)' coin-media.json > coin-media.clean.json
             mv coin-media.clean.json coin-media.json
-            gh release upload "$RELEASE_TAG" coin-media.json --clobber
+            gh release upload "$RELEASE_TAG" coin-media.json --clobber --repo "$GITHUB_REPOSITORY"
           fi

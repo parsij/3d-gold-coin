@@ -77,6 +77,7 @@ rm -f \
   media/coin-poster.png \
   media/coin-poster.jpg \
   media/coin-poster.webp \
+  media/coin-fallback.gif \
   media/coin-low.mp4 \
   media/coin-medium.mp4 \
   media/coin-high.mp4 \
@@ -140,6 +141,13 @@ encode_mp4 medium 720 30 25 60
 encode_mp4 high 1080 60 22 120
 encode_mp4 ultra 1440 60 18 120
 
+echo "==> Encoding GIF fallback: 480x480 @ 24 fps"
+ffmpeg -hide_banner -loglevel error -y \
+  -i media/coin-medium.mp4 \
+  -filter_complex "[0:v]fps=24,scale=480:480:flags=lanczos,split[g0][g1];[g0]palettegen=max_colors=192:stats_mode=diff[p];[g1][p]paletteuse=dither=sierra2_4a" \
+  -loop 0 \
+  media/coin-fallback.gif
+
 for quality in low medium high ultra; do
   ffprobe -v error -show_entries format=duration,size \
     -of default=noprint_wrappers=1 "media/coin-${quality}.mp4"
@@ -149,6 +157,7 @@ LOW_BYTES="$(stat -c%s media/coin-low.mp4)"
 MEDIUM_BYTES="$(stat -c%s media/coin-medium.mp4)"
 HIGH_BYTES="$(stat -c%s media/coin-high.mp4)"
 ULTRA_BYTES="$(stat -c%s media/coin-ultra.mp4)"
+GIF_BYTES="$(stat -c%s media/coin-fallback.gif)"
 POSTER_JPG_BYTES="$(stat -c%s media/coin-poster.jpg)"
 POSTER_WEBP_BYTES="$(stat -c%s media/coin-poster.webp)"
 POSTER_PNG_BYTES="$(stat -c%s media/coin-poster.png)"
@@ -169,6 +178,13 @@ cat > media/coin-media.json <<EOF
     "webpBytes": ${POSTER_WEBP_BYTES},
     "pngBytes": ${POSTER_PNG_BYTES},
     "matchesVideoFrame": 0
+  },
+  "fallbackGif": {
+    "url": "${RELEASE_BASE}/coin-fallback.gif",
+    "width": 480,
+    "height": 480,
+    "fps": 24,
+    "bytes": ${GIF_BYTES}
   },
   "qualities": {
     "low": {
@@ -208,6 +224,7 @@ ASSETS=(
   media/coin-poster.jpg
   media/coin-poster.webp
   media/coin-poster.png
+  media/coin-fallback.gif
   media/coin-low.mp4
   media/coin-medium.mp4
   media/coin-high.mp4
